@@ -18,7 +18,7 @@ void matrixInit(float* mat, int size) {
  * Run Single Head Attention using CUDA
  */
 void SingleHeadAttention(int block_size, const dim3 &dimsA,
-                   const dim3 &dimsB) {
+                   const dim3 &dimsB, float *h_X) {
     // Allocate host memory for matrices A and B
     unsigned int size_X = dimsA.x * dimsA.y;
     unsigned int mem_size_X = sizeof(float) * size_X;
@@ -33,7 +33,7 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     dim3 dimsCT(dimsA.y, dimsB.x, 1);
     unsigned int mem_size_Q = dimsC.x * dimsC.y * sizeof(float);
 
-    float *h_X = reinterpret_cast<float *>(malloc(mem_size_X));
+    // float *h_X = reinterpret_cast<float *>(malloc(mem_size_X));
     float *h_Wq = reinterpret_cast<float *>(malloc(mem_size_Wq));
     float *h_Q = reinterpret_cast<float *>(malloc(mem_size_Q));
     if (h_Q == NULL) {
@@ -203,10 +203,6 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     checkCudaErrors(cudaMemcpy(h_H, d_H, mem_size_Q, cudaMemcpyDeviceToHost));
 
     printf("h_Q[0] %f h_K[0] %f h_V[0] %f h_S[0][2] %f h_H[0][0] %f\n", h_Q[0], h_K[0], h_V[0], h_S[2], h_H[0]);
-    // for (int i = 0; i < 2048; i++)
-    // {
-    //     printf("h_H[%d] %f\n", i, h_H[i]);
-    // }
 
     // Clean up memory
     free(h_X);
@@ -252,7 +248,12 @@ int main(int argc, char **argv) {
     printf("MatrixA(%d,%d), MatrixB(%d,%d)\n", dimsA.x, dimsA.y,
                                                dimsB.x, dimsB.y);
 
-    SingleHeadAttention(block_size, dimsA, dimsB);
+    unsigned int size_X = dimsA.x * dimsA.y;
+    unsigned int mem_size_X = sizeof(float) * size_X;
+    float *h_X = reinterpret_cast<float *>(malloc(mem_size_X));
+    matrixInit(h_X, size_X);
+
+    SingleHeadAttention(block_size, dimsA, dimsB, h_X);
 
     int n = 32;
     int D = 768;
