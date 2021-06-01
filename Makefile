@@ -230,16 +230,16 @@ else
 endif
 
 softmax.o: softmax.cu $(HEADERS)
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) -o $@ -c $<
+	$(EXEC) $(NVCC) -std=c++11 $(INCLUDES) $(ALL_CCFLAGS) -o $@ -c $<
 
 softmax: softmax.o
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) -o $@ $+ $(LIBRARIES)
+	$(EXEC) $(NVCC) -std=c++11 $(ALL_LDFLAGS) -o $@ $+ $(LIBRARIES)
 
 transformer.o: transformer.cu softmax.cu $(HEADERS)
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) -o $@ -c $<
+	$(EXEC) $(NVCC) -std=c++11 $(INCLUDES) $(ALL_CCFLAGS) -o $@ -c $<
 
 transformer: transformer.o
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) -o $@ $+ $(LIBRARIES)
+	$(EXEC) $(NVCC) -std=c++11 $(ALL_LDFLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build
 	$(EXEC) ./transformer
