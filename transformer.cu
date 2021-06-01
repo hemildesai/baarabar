@@ -15,9 +15,9 @@ void matrixInit(float* mat, int size) {
 }
 
 /**
- * Run a simple test of matrix multiplication using CUDA
+ * Run Single Head Attention using CUDA
  */
-int MatrixMultiply(int block_size, const dim3 &dimsA,
+void SingleHeadAttention(int block_size, const dim3 &dimsA,
                    const dim3 &dimsB) {
     // Allocate host memory for matrices A and B
     unsigned int size_X = dimsA.x * dimsA.y;
@@ -58,6 +58,8 @@ int MatrixMultiply(int block_size, const dim3 &dimsA,
     // Setup execution parameters
     dim3 threads(block_size, block_size);
     dim3 grid(dimsB.x / threads.x, dimsA.y / threads.y);
+
+    // ******* Q ********
 
     printf("Computing Query using CUDA Kernel...\n");
     if (block_size == 16) {
@@ -169,23 +171,42 @@ int MatrixMultiply(int block_size, const dim3 &dimsA,
     printf("done\n");
 
     dim3 threads_ss(1, BLOCK_SIZE);
-    dim3 grid_ss(ceil((precision) 32 / threads_ss.x), ceil((precision) 32 / threads_ss.y));
-    Softmax <<< grid_ss, threads_ss >>> (d_S, d_SS, 32, 32);
+    dim3 grid_ss(ceil((precision) dimsA.y / threads_ss.x), ceil((precision) dimsA.y / threads_ss.y));
+    Softmax <<< grid_ss, threads_ss >>> (d_S, d_SS, dimsA.y, dimsA.y);
 
-    // cudaDeviceSynchronize();
+    // ******* Softmax * V ********
+    float *h_H = reinterpret_cast<float *>(malloc(mem_size_Q));
+
+    if (h_H == NULL) {
+        fprintf(stderr, "Failed to allocate host matrix C!\n");
+        exit(EXIT_FAILURE);
+    }
+    float *d_H;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_H), mem_size_Q));
+    dim3 threads_h(block_size, block_size);
+    dim3 grid_h(dimsC.x / threads.x, dimsA.y / threads.y);
+    if (block_size == 16) {
+        MatrixMulCUDA<16> <<< gS, tS >>>(d_H, d_SS, d_V,
+                                                dimsA.y, dimsC.x);
+    } else {
+        MatrixMulCUDA<32> <<< gS, tS >>>(d_H, d_SS, d_V,
+                                                dimsA.y, dimsC.x);
+    }
+
+    cudaDeviceSynchronize();
 
     // Copy result from device to host
     checkCudaErrors(cudaMemcpy(h_Q, d_Q, mem_size_Q, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(h_K, d_K, mem_size_Q, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(h_V, d_V, mem_size_Q, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy(h_S, d_SS, mem_size_S, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_H, d_H, mem_size_Q, cudaMemcpyDeviceToHost));
 
-    printf("h_Q[0] %f h_K[0] %f h_V[0] %f h_S[0][2] %f\n", h_Q[0], h_K[0], h_V[0], h_S[2]);
-    for (int i = 64; i < 96; i++)
-    {
-        printf("h_S[%d] %f\n", i, h_S[i]);
-    }
-
+    printf("h_Q[0] %f h_K[0] %f h_V[0] %f h_S[0][2] %f h_H[0][0] %f\n", h_Q[0], h_K[0], h_V[0], h_S[2], h_H[0]);
+    // for (int i = 0; i < 2048; i++)
+    // {
+    //     printf("h_H[%d] %f\n", i, h_H[i]);
+    // }
 
     // Clean up memory
     free(h_X);
@@ -195,6 +216,8 @@ int MatrixMultiply(int block_size, const dim3 &dimsA,
     free(h_K);
     free(h_Wv);
     free(h_V);
+    free(h_H);
+    free(h_S);
     checkCudaErrors(cudaFree(d_X));
     checkCudaErrors(cudaFree(d_Wq));
     checkCudaErrors(cudaFree(d_Q));
@@ -202,11 +225,12 @@ int MatrixMultiply(int block_size, const dim3 &dimsA,
     checkCudaErrors(cudaFree(d_K));
     checkCudaErrors(cudaFree(d_Wv));
     checkCudaErrors(cudaFree(d_V));
+    checkCudaErrors(cudaFree(d_S));
+    checkCudaErrors(cudaFree(d_SS));
+    checkCudaErrors(cudaFree(d_H));
 
     printf("\nNOTE: The CUDA Samples are not meant for performance"\
            "measurements. Results may vary when GPU Boost is enabled.\n");
-
-    return 0;
 }
 
 
@@ -215,17 +239,6 @@ int MatrixMultiply(int block_size, const dim3 &dimsA,
  */
 int main(int argc, char **argv) {
     printf("[Transformer Using CUDA] - Starting...\n");
-
-    // if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
-    //         checkCmdLineFlag(argc, (const char **)argv, "?")) {
-    //     printf("Usage -device=n (n >= 0 for deviceID)\n");
-    //     printf("      -wA=WidthA -hA=HeightA (Width x Height of Matrix A)\n");
-    //     printf("      -wB=WidthB -hB=HeightB (Width x Height of Matrix B)\n");
-    //     printf("  Note: Outer matrix dimensions of A & B matrices" \
-    //            " must be equal.\n");
-
-    //     exit(EXIT_SUCCESS);
-    // }
 
     // This will pick the best possible CUDA capable device, otherwise
     // override the device ID based on input provided at the command line
@@ -239,9 +252,8 @@ int main(int argc, char **argv) {
     printf("MatrixA(%d,%d), MatrixB(%d,%d)\n", dimsA.x, dimsA.y,
                                                dimsB.x, dimsB.y);
 
-    int matrix_result = MatrixMultiply(block_size, dimsA, dimsB);
+    SingleHeadAttention(block_size, dimsA, dimsB);
 
-    // int block_size = 16;
     int n = 32;
     int D = 768;
     int dk = 64;
@@ -249,73 +261,4 @@ int main(int argc, char **argv) {
     printf("n %d D %d dk %d\n", n, D, dk);
 
     // MultiHeadAttention(n, D, dk, block_size);
-
-    // exit(matrix_result);
 }
-
-
-// void initializeCUDA(int argc, char **argv, int &devID, int &iSizeMultiple, sMatrixSize &matrix_size)
-// {
-//     // By default, we use device 0, otherwise we override the device ID based on what is provided at the command line
-//     cudaError_t error;
-//     devID = 0;
-
-//     devID = findCudaDevice(argc, (const char **)argv);
-
-//     if (checkCmdLineFlag(argc, (const char **)argv, "sizemult"))
-//     {
-//         iSizeMultiple = getCmdLineArgumentInt(argc, (const char **)argv, "sizemult");
-//     }
-
-//     iSizeMultiple = min(iSizeMultiple, 10);
-//     iSizeMultiple = max(iSizeMultiple, 1);
-
-//     cudaDeviceProp deviceProp;
-
-//     error = cudaGetDeviceProperties(&deviceProp, devID);
-
-//     if (error != cudaSuccess)
-//     {
-//         printf("cudaGetDeviceProperties returned error code %d, line(%d)\n", error, __LINE__);
-//         exit(EXIT_FAILURE);
-//     }
-
-//     printf("GPU Device %d: \"%s\" with compute capability %d.%d\n\n", devID, deviceProp.name, deviceProp.major, deviceProp.minor);
-
-//     int block_size = 32;
-
-//     matrix_size.uiWA = 3 * block_size * iSizeMultiple;
-//     matrix_size.uiHA = 4 * block_size * iSizeMultiple;
-//     matrix_size.uiWB = 2 * block_size * iSizeMultiple;
-//     matrix_size.uiHB = 3 * block_size * iSizeMultiple;
-//     matrix_size.uiWC = 2 * block_size * iSizeMultiple;
-//     matrix_size.uiHC = 4 * block_size * iSizeMultiple;
-
-//     printf("MatrixA(%u,%u), MatrixB(%u,%u), MatrixC(%u,%u)\n",
-//            matrix_size.uiHA, matrix_size.uiWA,
-//            matrix_size.uiHB, matrix_size.uiWB,
-//            matrix_size.uiHC, matrix_size.uiWC);
-
-//     if( matrix_size.uiWA != matrix_size.uiHB ||
-//         matrix_size.uiHA != matrix_size.uiHC ||
-//         matrix_size.uiWB != matrix_size.uiWC)
-//     {
-//        printf("ERROR: Matrix sizes do not match!\n");
-//        exit(-1);
-//     }
-// }
-
-// int main(int argc, char **argv)
-// {
-//     printf("[Matrix Multiply CUBLAS] - Starting...\n");
-
-//     int devID = 0, sizeMult = 5;
-//     sMatrixSize matrix_size;
-
-//     initializeCUDA(argc, argv, devID, sizeMult, matrix_size);
-
-//     // int matrix_result = matrixMultiply(argc, argv, devID, matrix_size);
-
-//     // return matrix_result;
-//     return 0;
-// }
