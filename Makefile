@@ -241,6 +241,18 @@ transformer.o: transformer.cu softmax.cu $(HEADERS)
 transformer: transformer.o
 	$(EXEC) $(NVCC) -std=c++11 $(ALL_LDFLAGS) -o $@ $+ $(LIBRARIES)
 
+concurrent.o: concurrent.cu
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
+concurrent: concurrent.o
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+
+threads.o: threads.cpp
+	$(EXEC) $(NVCC) -std=c++11 $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
+threads: threads.o
+	$(EXEC) $(NVCC) -std=c++11 $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
+
 run: build
 	$(EXEC) ./transformer
 
