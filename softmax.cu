@@ -3,7 +3,7 @@
 void matrixInit(precision* mat, int size) {
     for (int i = 0; i < size; i++)
     {
-        mat[i] = ((precision) rand() / (RAND_MAX)) * 10;
+        mat[i] = ((precision) rand() / (RAND_MAX)) - 0.5f;
     }
 }
 
@@ -84,13 +84,13 @@ int main(int argc, char **argv) {
     if (checkCmdLineFlag(argc, (const char **)argv, "row")) {
         rows = getCmdLineArgumentInt(argc, (const char **)argv, "row");
     } else {
-        rows = 512 * 16;
+        rows = 32;
     }
 
     if (checkCmdLineFlag(argc, (const char **)argv, "cols")) {
         cols = getCmdLineArgumentInt(argc, (const char **)argv, "cols");
     } else {
-        cols = 512;
+        cols = 32;
     }
 
     printf("rows: %d, cols: %d\n", rows, cols);

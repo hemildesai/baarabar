@@ -1,4 +1,5 @@
 #include "transformer.hpp"
+#include <unistd.h>
 
 void ConstantInit(float *data, int size, float val) {
     for (int i = 0; i < size; ++i) {
@@ -6,157 +7,206 @@ void ConstantInit(float *data, int size, float val) {
     }
 }
 
+void matrixInit(float* mat, int size) {
+    for (int i = 0; i < size; i++)
+    {
+        mat[i] = (((float) rand() / (RAND_MAX)) - 0.5f) * 0.5;
+    }
+}
+
 /**
  * Run a simple test of matrix multiplication using CUDA
  */
-int MatrixMultiply(int argc, char **argv,
-                   int block_size, const dim3 &dimsA,
+int MatrixMultiply(int block_size, const dim3 &dimsA,
                    const dim3 &dimsB) {
     // Allocate host memory for matrices A and B
-    unsigned int size_A = dimsA.x * dimsA.y;
-    unsigned int mem_size_A = sizeof(float) * size_A;
-    float *h_A = reinterpret_cast<float *>(malloc(mem_size_A));
-    unsigned int size_B = dimsB.x * dimsB.y;
-    unsigned int mem_size_B = sizeof(float) * size_B;
-    float *h_B = reinterpret_cast<float *>(malloc(mem_size_B));
+    unsigned int size_X = dimsA.x * dimsA.y;
+    unsigned int mem_size_X = sizeof(float) * size_X;
 
-    // Initialize host memory
-    const float valB = 0.01f;
-    ConstantInit(h_A, size_A, 1.0f);
-    ConstantInit(h_B, size_B, valB);
+    unsigned int size_S = dimsA.y * dimsA.y;
+    unsigned int mem_size_S = sizeof(float) * size_S;
 
-    // Allocate device memory
-    float *d_A, *d_B, *d_C;
+    unsigned int size_Wq = dimsB.x * dimsB.y;
+    unsigned int mem_size_Wq = sizeof(float) * size_Wq;
 
-    // Allocate host matrix C
     dim3 dimsC(dimsB.x, dimsA.y, 1);
-    unsigned int mem_size_C = dimsC.x * dimsC.y * sizeof(float);
-    float *h_C = reinterpret_cast<float *>(malloc(mem_size_C));
+    dim3 dimsCT(dimsA.y, dimsB.x, 1);
+    unsigned int mem_size_Q = dimsC.x * dimsC.y * sizeof(float);
 
-    if (h_C == NULL) {
+    float *h_X = reinterpret_cast<float *>(malloc(mem_size_X));
+    float *h_Wq = reinterpret_cast<float *>(malloc(mem_size_Wq));
+    float *h_Q = reinterpret_cast<float *>(malloc(mem_size_Q));
+    if (h_Q == NULL) {
         fprintf(stderr, "Failed to allocate host matrix C!\n");
         exit(EXIT_FAILURE);
     }
 
-    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_A), mem_size_A));
+    // Initialize host memory
+    matrixInit(h_X, size_X);
+    matrixInit(h_Wq, size_Wq);
 
-    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_B), mem_size_B));
-
-    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_C), mem_size_C));
+    // Allocate device memory
+    float *d_X, *d_Wq, *d_Q;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_X), mem_size_X));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_Wq), mem_size_Wq));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_Q), mem_size_Q));
 
     // copy host memory to device
-    checkCudaErrors(cudaMemcpy(d_A, h_A, mem_size_A, cudaMemcpyHostToDevice));
-
-    checkCudaErrors(cudaMemcpy(d_B, h_B, mem_size_B, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_X, h_X, mem_size_X, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_Wq, h_Wq, mem_size_Wq, cudaMemcpyHostToDevice));
 
     // Setup execution parameters
     dim3 threads(block_size, block_size);
     dim3 grid(dimsB.x / threads.x, dimsA.y / threads.y);
 
-    // Create and start timer
-    printf("Computing result using CUDA Kernel...\n");
-
-    // Performs warmup operation using matrixMul CUDA kernel
+    printf("Computing Query using CUDA Kernel...\n");
     if (block_size == 16) {
-        MatrixMulCUDA<16> <<< grid, threads >>>(d_C, d_A, d_B,
+        MatrixMulCUDA<16> <<< grid, threads >>>(d_Q, d_X, d_Wq,
                                                 dimsA.x, dimsB.x);
     } else {
-        MatrixMulCUDA<32> <<< grid, threads >>>(d_C, d_A, d_B,
+        MatrixMulCUDA<32> <<< grid, threads >>>(d_Q, d_X, d_Wq,
                                                 dimsA.x, dimsB.x);
+    }
+    printf("done\n");
+
+    // ******* K ********
+    float *h_Wk = reinterpret_cast<float *>(malloc(mem_size_Wq));
+    float *h_K = reinterpret_cast<float *>(malloc(mem_size_Q));
+
+    if (h_K == NULL) {
+        fprintf(stderr, "Failed to allocate host matrix C!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialize host memory
+    matrixInit(h_Wk, size_Wq);
+
+    float *d_Wk, *d_K;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_Wk), mem_size_Wq));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_K), mem_size_Q));
+
+    // copy host memory to device
+    checkCudaErrors(cudaMemcpy(d_Wk, h_Wk, mem_size_Wq, cudaMemcpyHostToDevice));
+
+    printf("Computing Key using CUDA Kernel...\n");
+    if (block_size == 16) {
+        MatrixMulCUDA<16> <<< grid, threads >>>(d_K, d_X, d_Wk,
+                                                dimsA.x, dimsB.x);
+    } else {
+        MatrixMulCUDA<32> <<< grid, threads >>>(d_K, d_X, d_Wk,
+                                                dimsA.x, dimsB.x);
+    }
+    printf("done\n");
+
+    // ******* V ********
+    float *h_Wv = reinterpret_cast<float *>(malloc(mem_size_Wq));
+    float *h_V = reinterpret_cast<float *>(malloc(mem_size_Q));
+
+    if (h_V == NULL) {
+        fprintf(stderr, "Failed to allocate host matrix C!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialize host memory
+    matrixInit(h_Wv, size_Wq);
+
+    float *d_Wv, *d_V;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_Wv), mem_size_Wq));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_V), mem_size_Q));
+
+    // copy host memory to device
+    checkCudaErrors(cudaMemcpy(d_Wv, h_Wv, mem_size_Wq, cudaMemcpyHostToDevice));
+
+    printf("Computing Value using CUDA Kernel...\n");
+    if (block_size == 16) {
+        MatrixMulCUDA<16> <<< grid, threads >>>(d_V, d_X, d_Wv,
+                                                dimsA.x, dimsB.x);
+    } else {
+        MatrixMulCUDA<32> <<< grid, threads >>>(d_V, d_X, d_Wv,
+                                                dimsA.x, dimsB.x);
+    }
+    printf("done\n");
+
+    // ******* K Transpose ********
+    float *d_KT;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_KT), mem_size_Q));
+
+    printf("Computing K Transpose using CUDA Kernel...\n");
+    dim3 gT(dimsC.x / block_size, dimsC.y / block_size, 1);
+    dim3 tT(block_size, block_size, 1);
+    if (block_size == 16) {
+        transpose<16> <<< gT, tT >>> (d_KT, d_K, dimsC.x, dimsC.y);
+    } else {
+        transpose<32> <<< gT, tT >>> (d_KT, d_K, dimsC.x, dimsC.y);
+    }
+    printf("done\n");
+
+
+    // ******* Softmax ********
+    float *h_S = reinterpret_cast<float *>(malloc(mem_size_S));
+
+    if (h_S == NULL) {
+        fprintf(stderr, "Failed to allocate host matrix C!\n");
+        exit(EXIT_FAILURE);
+    }
+    float *d_S, *d_SS;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_S), mem_size_S));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void **>(&d_SS), mem_size_S));
+
+    printf("Computing QK using CUDA Kernel...\n");
+
+    dim3 tS(block_size, block_size);
+    dim3 gS(dimsCT.x / threads.x, dimsC.y / threads.y);
+    printf("dimsCT.x %d dimsC.y %d dimsC.x %d\n", dimsCT.x, dimsC.y, dimsC.x);
+    if (block_size == 16) {
+        MatrixMulCUDA<16> <<< gS, tS >>>(d_S, d_Q, d_KT,
+                                                dimsC.x, dimsCT.x);
+    } else {
+        MatrixMulCUDA<32> <<< gS, tS >>>(d_S, d_Q, d_KT,
+                                                dimsC.x, dimsCT.x);
     }
 
     printf("done\n");
 
-    cudaDeviceSynchronize();
+    dim3 threads_ss(1, BLOCK_SIZE);
+    dim3 grid_ss(ceil((precision) 32 / threads_ss.x), ceil((precision) 32 / threads_ss.y));
+    Softmax <<< grid_ss, threads_ss >>> (d_S, d_SS, 32, 32);
 
-    // Allocate CUDA events that we'll use for timing
-    cudaEvent_t start;
-    checkCudaErrors(cudaEventCreate(&start));
-
-    cudaEvent_t stop;
-    checkCudaErrors(cudaEventCreate(&stop));
-
-    // Record the start event
-    checkCudaErrors(cudaEventRecord(start, NULL));
-
-    // Execute the kernel
-    int nIter = 300;
-
-    for (int j = 0; j < nIter; j++) {
-        if (block_size == 16) {
-            MatrixMulCUDA<16> <<< grid, threads >>>(d_C, d_A, d_B,
-                                                    dimsA.x, dimsB.x);
-        } else {
-            MatrixMulCUDA<32> <<< grid, threads >>>(d_C, d_A, d_B,
-                                                    dimsA.x, dimsB.x);
-        }
-    }
-
-    // Record the stop event
-    checkCudaErrors(cudaEventRecord(stop, NULL));
-
-    // Wait for the stop event to complete
-    checkCudaErrors(cudaEventSynchronize(stop));
-
-    float msecTotal = 0.0f;
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
-
-    // Compute and print the performance
-    float msecPerMatrixMul = msecTotal / nIter;
-    double flopsPerMatrixMul = 2.0 * static_cast<double>(dimsA.x) *
-                               static_cast<double>(dimsA.y) *
-                               static_cast<double>(dimsB.x);
-    double gigaFlops = (flopsPerMatrixMul * 1.0e-9f) /
-                       (msecPerMatrixMul / 1000.0f);
-    printf(
-        "Performance= %.2f GFlop/s, Time= %.3f msec, Size= %.0f Ops," \
-        " WorkgroupSize= %u threads/block\n",
-        gigaFlops,
-        msecPerMatrixMul,
-        flopsPerMatrixMul,
-        threads.x * threads.y);
+    // cudaDeviceSynchronize();
 
     // Copy result from device to host
-    checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_Q, d_Q, mem_size_Q, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_K, d_K, mem_size_Q, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_V, d_V, mem_size_Q, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_S, d_SS, mem_size_S, cudaMemcpyDeviceToHost));
 
-    printf("Checking computed result for correctness: ");
-    bool correct = true;
-
-    // test relative error by the formula
-    //     |<x, y>_cpu - <x,y>_gpu|/<|x|, |y|>  < eps
-    double eps = 1.e-6;  // machine zero
-
-    for (int i = 0; i < static_cast<int>(dimsC.x * dimsC.y); i++) {
-        double abs_err = fabs(h_C[i] - (dimsA.x * valB));
-        double dot_length = dimsA.x;
-        double abs_val = fabs(h_C[i]);
-        double rel_err = abs_err / abs_val / dot_length;
-
-        if (rel_err > eps) {
-            printf("Error! Matrix[%05d]=%.8f, ref=%.8f error term is > %E\n",
-                   i, h_C[i], dimsA.x * valB, eps);
-            correct = false;
-        }
+    printf("h_Q[0] %f h_K[0] %f h_V[0] %f h_S[0][2] %f\n", h_Q[0], h_K[0], h_V[0], h_S[2]);
+    for (int i = 64; i < 96; i++)
+    {
+        printf("h_S[%d] %f\n", i, h_S[i]);
     }
 
-    printf("%s\n", correct ? "Result = PASS" : "Result = FAIL");
 
     // Clean up memory
-    free(h_A);
-    free(h_B);
-    free(h_C);
-    checkCudaErrors(cudaFree(d_A));
-    checkCudaErrors(cudaFree(d_B));
-    checkCudaErrors(cudaFree(d_C));
+    free(h_X);
+    free(h_Wq);
+    free(h_Q);
+    free(h_Wk);
+    free(h_K);
+    free(h_Wv);
+    free(h_V);
+    checkCudaErrors(cudaFree(d_X));
+    checkCudaErrors(cudaFree(d_Wq));
+    checkCudaErrors(cudaFree(d_Q));
+    checkCudaErrors(cudaFree(d_Wk));
+    checkCudaErrors(cudaFree(d_K));
+    checkCudaErrors(cudaFree(d_Wv));
+    checkCudaErrors(cudaFree(d_V));
 
     printf("\nNOTE: The CUDA Samples are not meant for performance"\
            "measurements. Results may vary when GPU Boost is enabled.\n");
 
-    if (correct) {
-        return EXIT_SUCCESS;
-    } else {
-        return EXIT_FAILURE;
-    }
+    return 0;
 }
 
 
@@ -164,18 +214,18 @@ int MatrixMultiply(int argc, char **argv,
  * Program main
  */
 int main(int argc, char **argv) {
-    printf("[Linear Layer Using CUDA] - Starting...\n");
+    printf("[Transformer Using CUDA] - Starting...\n");
 
-    if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
-            checkCmdLineFlag(argc, (const char **)argv, "?")) {
-        printf("Usage -device=n (n >= 0 for deviceID)\n");
-        printf("      -wA=WidthA -hA=HeightA (Width x Height of Matrix A)\n");
-        printf("      -wB=WidthB -hB=HeightB (Width x Height of Matrix B)\n");
-        printf("  Note: Outer matrix dimensions of A & B matrices" \
-               " must be equal.\n");
+    // if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
+    //         checkCmdLineFlag(argc, (const char **)argv, "?")) {
+    //     printf("Usage -device=n (n >= 0 for deviceID)\n");
+    //     printf("      -wA=WidthA -hA=HeightA (Width x Height of Matrix A)\n");
+    //     printf("      -wB=WidthB -hB=HeightB (Width x Height of Matrix B)\n");
+    //     printf("  Note: Outer matrix dimensions of A & B matrices" \
+    //            " must be equal.\n");
 
-        exit(EXIT_SUCCESS);
-    }
+    //     exit(EXIT_SUCCESS);
+    // }
 
     // This will pick the best possible CUDA capable device, otherwise
     // override the device ID based on input provided at the command line
@@ -183,41 +233,24 @@ int main(int argc, char **argv) {
 
     int block_size = 32;
 
-    dim3 dimsA(5 * 2 * block_size, 5 * 2 * block_size, 1);
-    dim3 dimsB(5 * 4 * block_size, 5 * 2 * block_size, 1);
-
-    // width of Matrix A
-    if (checkCmdLineFlag(argc, (const char **)argv, "wA")) {
-        dimsA.x = getCmdLineArgumentInt(argc, (const char **)argv, "wA");
-    }
-
-    // height of Matrix A
-    if (checkCmdLineFlag(argc, (const char **)argv, "hA")) {
-        dimsA.y = getCmdLineArgumentInt(argc, (const char **)argv, "hA");
-    }
-
-    // width of Matrix B
-    if (checkCmdLineFlag(argc, (const char **)argv, "wB")) {
-        dimsB.x = getCmdLineArgumentInt(argc, (const char **)argv, "wB");
-    }
-
-    // height of Matrix B
-    if (checkCmdLineFlag(argc, (const char **)argv, "hB")) {
-        dimsB.y = getCmdLineArgumentInt(argc, (const char **)argv, "hB");
-    }
-
-    if (dimsA.x != dimsB.y) {
-        printf("Error: outer matrix dimensions must be equal. (%d != %d)\n",
-               dimsA.x, dimsB.y);
-        exit(EXIT_FAILURE);
-    }
+    dim3 dimsA(768, 32, 1);
+    dim3 dimsB(64, 768, 1);
 
     printf("MatrixA(%d,%d), MatrixB(%d,%d)\n", dimsA.x, dimsA.y,
                                                dimsB.x, dimsB.y);
 
-    int matrix_result = MatrixMultiply(argc, argv, block_size, dimsA, dimsB);
+    int matrix_result = MatrixMultiply(block_size, dimsA, dimsB);
 
-    exit(matrix_result);
+    // int block_size = 16;
+    int n = 32;
+    int D = 768;
+    int dk = 64;
+
+    printf("n %d D %d dk %d\n", n, D, dk);
+
+    // MultiHeadAttention(n, D, dk, block_size);
+
+    // exit(matrix_result);
 }
 
 

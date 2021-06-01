@@ -1,9 +1,40 @@
 #ifndef GEMM_H    // To make sure you don't declare the function more than once by including the header multiple times.
 #define GEMM_H
 
-#ifndef BLOCK_SIZE
-     #define BLOCK_SIZE 16
-#endif
+// #ifndef BLOCK_SIZE
+//      #define BLOCK_SIZE 16
+// #endif
+
+// https://github.com/JonathanWatkins/CUDA/blob/master/NvidiaCourse/Exercises/transpose/transpose.cu
+template <int BLOCK_DIM> __global__ void transpose(float *odata, float *idata, int width, int height)
+{
+	__shared__ float block[BLOCK_DIM][BLOCK_DIM+1];
+
+	// read the matrix tile into shared memory
+        // load one element per thread from device memory (idata) and store it
+        // in transposed order in block[][]
+	unsigned int xIndex = blockIdx.x * BLOCK_DIM + threadIdx.x;
+	unsigned int yIndex = blockIdx.y * BLOCK_DIM + threadIdx.y;
+	if((xIndex < width) && (yIndex < height))
+	{
+		unsigned int index_in = yIndex * width + xIndex;
+		block[threadIdx.y][threadIdx.x] = idata[index_in];
+	}
+
+        // synchronise to ensure all writes to block[][] have completed
+	__syncthreads();
+
+	// write the transposed matrix tile to global memory (odata) in linear order
+	xIndex = blockIdx.y * BLOCK_DIM + threadIdx.x;
+	yIndex = blockIdx.x * BLOCK_DIM + threadIdx.y;
+	if((xIndex < height) && (yIndex < width))
+	{
+		unsigned int index_out = yIndex * height + xIndex;
+		odata[index_out] = block[threadIdx.x][threadIdx.y];
+	}
+}
+
+
 
 /**
  * Matrix multiplication (CUDA Kernel) on the device: C = A * B
@@ -80,6 +111,58 @@ template <int BLK_SIZE> __global__ void MatrixMulCUDA(float *C, float *A,
     // each thread writes one element
     int c = wB * BLK_SIZE * by + BLK_SIZE * bx;
     C[c + wB * ty + tx] = Csub;
+}
+
+__global__ void LinearTiled(
+    float* out,
+    float* x,
+    float* w,
+    int in_f,
+    int out_f,
+    int batch_size
+) {
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+
+    int rOut = BLOCK_SIZE * bx + tx;
+    int cOut = BLOCK_SIZE * by + ty;
+
+    int outIdx = rOut * out_f + cOut;
+
+    int xStart = rOut * in_f;
+    int wStart = cOut * in_f;
+
+    float temp = 0;
+    for (int i = 0; i < in_f; i+= BLOCK_SIZE)
+    {
+        __shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
+
+        if (xStart + i + ty < (xStart + in_f) && tx < batch_size && ty < in_f)
+        {
+            As[tx][ty] = x[xStart + i + ty];
+        } else {
+            As[tx][ty] = 0.0;
+        }
+
+        Bs[tx][ty] = w[wStart + i + tx];
+
+        __syncthreads();
+
+#pragma unroll
+        for (int k = 0; k < BLOCK_SIZE; k++)
+        {
+            temp += As[tx][k] * Bs[k][ty];
+        }
+
+        __syncthreads();
+    }
+
+    if (rOut < batch_size && cOut < out_f) {
+        out[outIdx] = temp;
+    }
 }
 
 #endif
