@@ -64,10 +64,10 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     printf("Computing Query using CUDA Kernel...\n");
     if (block_size == 16) {
         MatrixMulCUDA<16> <<< grid, threads >>>(d_Q, d_X, d_Wq,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     } else {
         MatrixMulCUDA<32> <<< grid, threads >>>(d_Q, d_X, d_Wq,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     }
     printf("done\n");
 
@@ -93,10 +93,10 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     printf("Computing Key using CUDA Kernel...\n");
     if (block_size == 16) {
         MatrixMulCUDA<16> <<< grid, threads >>>(d_K, d_X, d_Wk,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     } else {
         MatrixMulCUDA<32> <<< grid, threads >>>(d_K, d_X, d_Wk,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     }
     printf("done\n");
 
@@ -122,10 +122,10 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     printf("Computing Value using CUDA Kernel...\n");
     if (block_size == 16) {
         MatrixMulCUDA<16> <<< grid, threads >>>(d_V, d_X, d_Wv,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     } else {
         MatrixMulCUDA<32> <<< grid, threads >>>(d_V, d_X, d_Wv,
-                                                dimsA.x, dimsB.x);
+                                                dimsA.x, dimsB.x, 1);
     }
     printf("done\n");
 
@@ -162,10 +162,10 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     printf("dimsCT.x %d dimsC.y %d dimsC.x %d\n", dimsCT.x, dimsC.y, dimsC.x);
     if (block_size == 16) {
         MatrixMulCUDA<16> <<< gS, tS >>>(d_S, d_Q, d_KT,
-                                                dimsC.x, dimsCT.x);
+                                                dimsC.x, dimsCT.x, 8);
     } else {
         MatrixMulCUDA<32> <<< gS, tS >>>(d_S, d_Q, d_KT,
-                                                dimsC.x, dimsCT.x);
+                                                dimsC.x, dimsCT.x, 8);
     }
 
     printf("done\n");
@@ -187,10 +187,10 @@ void SingleHeadAttention(int block_size, const dim3 &dimsA,
     dim3 grid_h(dimsC.x / threads.x, dimsA.y / threads.y);
     if (block_size == 16) {
         MatrixMulCUDA<16> <<< gS, tS >>>(d_H, d_SS, d_V,
-                                                dimsA.y, dimsC.x);
+                                                dimsA.y, dimsC.x, 1);
     } else {
         MatrixMulCUDA<32> <<< gS, tS >>>(d_H, d_SS, d_V,
-                                                dimsA.y, dimsC.x);
+                                                dimsA.y, dimsC.x, 1);
     }
 
     cudaDeviceSynchronize();

@@ -42,7 +42,7 @@ template <int BLOCK_DIM> __global__ void transpose(float *odata, float *idata, i
  */
 template <int BLK_SIZE> __global__ void MatrixMulCUDA(float *C, float *A,
                                                         float *B, int wA,
-                                                        int wB) {
+                                                        int wB, int divisor) {
     // Block index
     int bx = blockIdx.x;
     int by = blockIdx.y;
@@ -110,7 +110,7 @@ template <int BLK_SIZE> __global__ void MatrixMulCUDA(float *C, float *A,
     // Write the block sub-matrix to device memory;
     // each thread writes one element
     int c = wB * BLK_SIZE * by + BLK_SIZE * bx;
-    C[c + wB * ty + tx] = Csub;
+    C[c + wB * ty + tx] = Csub/divisor;
 }
 
 __global__ void LinearTiled(
