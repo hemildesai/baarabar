@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <assert.h>
 #include <math.h>
+#include <stdlib.h>
+#include <iostream>
+#include <vector>
+#include <thread>
 
 // CUDA runtime
 #include <cuda_runtime.h>
@@ -17,9 +21,28 @@
 #include "softmax.hpp"
 #include "gemm.hpp"
 
+using std::string;
+
 typedef struct _matrixSize      // Optional Command-line multiplier for matrix sizes
 {
     unsigned int uiWA, uiHA, uiWB, uiHB, uiWC, uiHC;
 } sMatrixSize;
+
+static __inline__ uint64_t gettime(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (((uint64_t)tv.tv_sec) * 1000000 + ((uint64_t)tv.tv_usec));
+}
+
+static uint64_t usec;
+
+__attribute__ ((noinline))  void begin_roi() {
+  usec=gettime();
+}
+
+__attribute__ ((noinline))  void end_roi(string message)   {
+//   usec=(gettime()-usec);
+  std::cout << message << "elapsed (sec): " << (gettime() - usec)/1000000.0 << "\n";
+}
 
 #endif

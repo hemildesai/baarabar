@@ -585,7 +585,7 @@ int main(int argc, char **argv) {
 
     int block_size = 16;
 
-    dim3 dimsA(768, 128 * 16, 1);
+    dim3 dimsA(768, 64, 1);
     dim3 dimsB(64, 768, 1);
 
     printf("Embedding Dim %d, Single Head Dim %d Sentence Length %d\n", dimsA.x, dimsB.x,
@@ -593,7 +593,7 @@ int main(int argc, char **argv) {
 
     printf("Hardware Concurrency %d threads\n", std::thread::hardware_concurrency());
 
-    dimsA.y = 16 * 128;
+    dimsA.y = 64;
     unsigned int size_X = dimsA.x * dimsA.y;
     unsigned int mem_size_X = sizeof(float) * size_X;
     float *h_X = reinterpret_cast<float *>(malloc(mem_size_X));
